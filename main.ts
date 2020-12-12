@@ -1,83 +1,71 @@
 import { App, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import {SemanticMarkdownSettings, SemanticMarkdownSettingTab} from "./settings";
+import { exec, ChildProcess } from 'child_process';
+import {promisify} from "util";
 
-export default class MyPlugin extends Plugin {
-	onload() {
-		console.log('loading plugin');
+// I got this from https://github.com/SilentVoid13/Templater/blob/master/src/fuzzy_suggester.ts
+const exec_promise = promisify(exec);
 
-		this.addRibbonIcon('dice', 'Sample Plugin', () => {
-			new Notice('This is a notice!');
-		});
+export default class SemanticMarkdownPlugin extends Plugin {
+	public settings: SemanticMarkdownSettings;
+	public server_process: ChildProcess;
 
-		this.addStatusBarItem().setText('Status Bar Text');
+	async onload() {
+
 
 		this.addCommand({
-			id: 'open-sample-modal',
-			name: 'Open Sample Modal',
+			id: 'restart-server',
+			name: 'Restart Semantic Markdown server',
 			// callback: () => {
 			// 	console.log('Simple Callback');
 			// },
 			checkCallback: (checking: boolean) => {
-				let leaf = this.app.workspace.activeLeaf;
-				if (leaf) {
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-					return true;
-				}
-				return false;
+				this.restart();
+
 			}
 		});
 
-		this.addSettingTab(new SampleSettingTab(this.app, this));
 
-		this.registerEvent(this.app.on('codemirror', (cm: CodeMirror.Editor) => {
-			console.log('codemirror', cm);
-		}));
+		this.addSettingTab(new SemanticMarkdownSettingTab(this.app, this));
 
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+		await this.initialize();
 	}
 
-	onunload() {
+	public async restart() {
+		new Notice("Restarting semantic markdown server.");
+		await this.shutdown();
+		await this.initialize();
+	}
+
+	public async initialize() {
+		console.log('Initializing semantic markdown');
+		try {
+			// await exec_promise("python3 -m venv smd", {timeout: 10000000});
+			let res = await exec_promise("python3 -m venv smd", {timeout: 10000000});
+			// await exec_promise("source activate threes-ai", {timeout: 10000000});
+			let {stdout, stderr} = await exec_promise("source smd/bin/activate && " +
+				"pip3 install --upgrade semantic-markdown-converter", {timeout: 10000000});
+			console.log(stderr);
+			let server_command = "source smd/bin/activate && " +
+				"smds --password " + this.settings.password + (this.settings.index_content ? "--index_content" : "");
+			this.server_process = exec(server_command);
+			new Notice("Initializing server.");
+			this.addStatusBarItem().setText('Initializing Neo4j Server');
+		}
+		catch(error) {
+			console.log("Error during initialization of semantic markdown: \n", error);
+			new Notice("Error during initialization of the Semantic Markdown server. Check the console for crash report.");
+		}
+	}
+
+	public async shutdown() {
+		this.server_process.kill();
+	}
+
+
+	async onunload() {
 		console.log('unloading plugin');
+		await this.shutdown();
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		let {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	display(): void {
-		let {containerEl} = this;
-
-		containerEl.empty();
-
-		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text.setPlaceholder('Enter your secret')
-				.setValue('')
-				.onChange((value) => {
-					console.log('Secret: ' + value);
-				}));
-
-	}
-}
